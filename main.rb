@@ -36,23 +36,23 @@ before do
     content_type :json
 end
 
+not_found do
+    'Not found'
+end
+
 helpers do
     def oid(val)
         #Only return an objectId for valid key strings
         if !BSON::ObjectId.legal?(val)
-            return nil
+            return val 
         end
 
         BSON::ObjectId.from_string(val)     
     end
-
-    def status404
-        status 404 && (body '404 - Not found')
-    end
 end
 
 get '/' do
-    "Traces Api 1.0"
+    'Traces Api 1.0'
 end
 
 get '/traces' do
@@ -73,10 +73,7 @@ post '/traces' do
     request.body.rewind
     coordinates = JSON.parse request.body.read
 
-    #puts params
-    #return
     trace = Trace.new(:coordinates => coordinates)
-
     trace.save
 
     return [ 201, 'Created' ]
@@ -85,24 +82,24 @@ end
 put '/traces/:id' do
     request.body.rewind
     coordinates = JSON.parse request.body.read
-    traces = settings.db[:traces]
+    
+    trace = Trace.first(:_id => oid(params[:id])) || Trace.new()
 
-    id = oid(params[:id])
+    trace._id = params[:id]
+    trace.coordinates = coordinates
+    trace.save
 
-
-    data = document_by_id(params[:id])
-
-    result = data.update_one
+    return [ 200, 'OK' ]
 end
 
 delete '/traces/:id' do
     trace = Trace.first(:_id => oid(params[:id])) 
 
     if !trace
-        return [ 404, 'Not found' ] 
+        return [ 404 ] 
     end
 
     trace.delete
 
-    "OK"
+    return [ 200, 'OK' ]
 end
