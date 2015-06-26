@@ -22,6 +22,7 @@ class Coordinate
     key :latitude, Float
     key :longitude, Float
     key :distance, Integer
+    key :elevation, Integer
 end
 
 configure do
@@ -68,6 +69,18 @@ helpers do
 
         return false
     end
+
+    def eventually_add_elevations(trace)
+        coordinates = trace.coordinates
+
+        #Only augment elevations, if the first coordinate does not have any elevation attribute
+        if coordinates && !coordinates.empty? && coordinates[0].elevation.nil?
+            trace.add_elevations()
+            return true
+        end
+
+        return false
+    end
 end
 
 get '/' do
@@ -77,12 +90,15 @@ end
 get '/traces' do
     traces = Trace.all.each
 
-    #Automatically save the entry if distances
+    #Automatically save the entry if distances / elevations
     #were added... Get request may take longer
     #if there were many traces without distances,
     #but will boost performance in the long run
     traces.each do |t|
-        t.save() if eventually_add_distances(t)
+        e1 = eventually_add_distances(t)
+        e2 = eventually_add_elevations(t)
+
+        t.save() if (e1 || e2)
     end
 
     traces.to_json
@@ -96,7 +112,10 @@ get '/traces/:id' do
         return [ 404, 'Not found' ] 
     end
 
-    trace.save() if eventually_add_distances(trace)
+    e1 = eventually_add_distances(trace)
+    e2 = eventually_add_elevations(trace)
+
+    trace.save() if (e1 || e2)
 
     trace.to_json
 end
@@ -107,6 +126,7 @@ post '/traces' do
 
     trace = Trace.new(:coordinates => coordinates)
     trace.add_distances
+    trace.add_elevations
     trace.save
 
     return [ 201, 'Created' ]
@@ -121,6 +141,7 @@ put '/traces/:id' do
     trace._id = params[:id]
     trace.coordinates = coordinates
     trace.add_distances
+    trace.add_elevations
     trace.save
 
     return [ 200, 'OK' ]

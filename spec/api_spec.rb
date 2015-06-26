@@ -28,6 +28,19 @@ module Check
         end
     end
 
+    #trace needs to either be a json literal with symbolized names
+    #or
+    #a MongoMapper Trace object
+    def check_elevations(trace)
+        coordinates = trace[:coordinates] || trace.coordinates
+
+        coordinates.each do |c|
+            elevation = c[:elevation] || c.elevation
+
+            expect(elevation).to be_a(Integer)
+        end
+    end
+
 end
 
 RSpec.configure do |c|
@@ -46,7 +59,7 @@ describe 'Traces API' do
     end
 
     describe 'GET /traces' do
-        it 'should return all traces with distances' do
+        it 'should return all traces with distances and elevations' do
             insert_test_data 
 
             get '/traces'
@@ -59,11 +72,13 @@ describe 'Traces API' do
             #Check if all coordinates have a distance
             traces.each do |t|
                 check_distances(t)
+                check_elevations(t)
             end
 
             #Check if all distances were persisted
             db_traces.each do |t|
                 check_distances(t)
+                check_elevations(t)
             end
         end
 
@@ -81,6 +96,7 @@ describe 'Traces API' do
             expect(trace[:coordinates].length).to eq(exp_trace.coordinates.length)
             check_coordinates(trace)
             check_distances(trace)
+            check_elevations(trace)
 
             #Check if the retrieved trace has the correct id
             expect(trace[:id]).to eq(exp_trace[:_id].to_s)
@@ -88,6 +104,7 @@ describe 'Traces API' do
             #Check if distance was persisted by reloading the entity
             db_trace = Trace.find(trace[:id])
             check_distances(db_trace)
+            check_elevations(db_trace)
         end
     end
 
@@ -138,6 +155,7 @@ describe 'Traces API' do
             expect(trace.coordinates.length).to eq(3)
 
             check_distances(trace)
+            check_elevations(trace)
         end
 
         it 'should update non-existing trace with coordinates' do
@@ -150,6 +168,7 @@ describe 'Traces API' do
             expect(trace.coordinates.length).to eq(3) 
 
             check_distances(trace)
+            check_elevations(trace)
         end
     end
 
