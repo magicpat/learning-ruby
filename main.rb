@@ -4,8 +4,11 @@ require 'bundler/setup'
 
 Bundler.require(:default)
 
+require_relative 'util.rb'
+
 class Trace
     include MongoMapper::Document
+    include TraceUtil
 
     #Workaround for 'stack level too deep' error if coords.length > 800
     embedded_callbacks_off
@@ -18,6 +21,7 @@ class Coordinate
     embedded_in :trace
     key :latitude, Float
     key :longitude, Float
+    key :distance, Integer
 end
 
 configure do
@@ -49,6 +53,21 @@ helpers do
 
         BSON::ObjectId.from_string(val)     
     end
+
+    #returns true, if distances were modified
+    def eventually_add_distances(trace)
+        coordinates = trace.coordinates
+
+        #Only add distances if the first coordinate has no distance set
+        #Assuming that if the first value has no distance, no coordinate
+        #will have it
+        if coordinates && !coordinates.empty? && coordinates[0].distance != 0 
+            trace.add_distances()
+            return true
+        end
+
+        return false
+    end
 end
 
 get '/' do
@@ -56,8 +75,19 @@ get '/' do
 end
 
 get '/traces' do
-    Trace.all.to_json
+    traces = Trace.all.each
+
+    #Automatically save the entry if distances
+    #were added... Get request may take longer
+    #if there were many traces without distances,
+    #but will boost performance in the long run
+    traces.each do |t|
+        t.save() if eventually_add_distances(t)
+    end
+
+    traces.to_json
 end
+
 
 get '/traces/:id' do
     trace = Trace.first(:_id => oid(params[:id])) 
@@ -65,6 +95,8 @@ get '/traces/:id' do
     if !trace
         return [ 404, 'Not found' ] 
     end
+
+    trace.save() if eventually_add_distances(trace)
 
     trace.to_json
 end
@@ -74,6 +106,7 @@ post '/traces' do
     coordinates = JSON.parse request.body.read
 
     trace = Trace.new(:coordinates => coordinates)
+    trace.add_distances
     trace.save
 
     return [ 201, 'Created' ]
@@ -87,6 +120,7 @@ put '/traces/:id' do
 
     trace._id = params[:id]
     trace.coordinates = coordinates
+    trace.add_distances
     trace.save
 
     return [ 200, 'OK' ]
