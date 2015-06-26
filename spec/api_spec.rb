@@ -1,4 +1,38 @@
-require_relative 'spec_helper.rb'
+require_relative 'spec_helper_sinatra.rb'
+
+module Check
+    #trace needs to either be a json literal with symbolized names
+    #or
+    #a MongoMapper Trace object
+    def check_distances(trace)
+        coordinates = trace[:coordinates] || trace.coordinates
+
+        coordinates.each do |c|
+            distance = c[:distance] || c.distance
+            expect(distance).to be_a(Integer)
+        end
+    end
+
+    #trace needs to either be a json literal with symbolized names
+    #or
+    #a MongoMapper Trace object
+    def check_coordinates(trace)
+        coordinates = trace[:coordinates] || trace.coordinates
+
+        coordinates.each do |c|
+            lat = c[:latitude] || c.latitude
+            long = c[:longitude] || c.longitude
+
+            expect(lat).to be_a(Float)
+            expect(long).to be_a(Float)
+        end
+    end
+
+end
+
+RSpec.configure do |c|
+    c.include Check
+end
 
 describe 'Traces API' do
 
@@ -12,13 +46,25 @@ describe 'Traces API' do
     end
 
     describe 'GET /traces' do
-        it 'should return all traces' do
+        it 'should return all traces with distances' do
             insert_test_data 
 
             get '/traces'
-            data = JSON.parse(last_response.body)
+            traces = JSON.parse(last_response.body, :symbolize_names => true)
 
-            expect(data.length).to eq(Trace.all.length) 
+            db_traces = Trace.all
+
+            expect(traces.length).to eq(db_traces.length) 
+
+            #Check if all coordinates have a distance
+            traces.each do |t|
+                check_distances(t)
+            end
+
+            #Check if all distances were persisted
+            db_traces.each do |t|
+                check_distances(t)
+            end
         end
 
         it 'should return a specific trace with /traces/:id' do
@@ -29,17 +75,19 @@ describe 'Traces API' do
             get "/traces/#{exp_trace[:_id]}"
             expect(last_response.status).to eq(200)
 
-            data = JSON.parse(last_response.body, :symbolize_names => true)
+            trace = JSON.parse(last_response.body, :symbolize_names => true)
 
             #Check if the coordinates are okay and have the proper attributes
-            expect(data[:coordinates].length).to eq(exp_trace.coordinates.length)
-            data[:coordinates].each do |coordinate|
-                expect(coordinate[:latitude]).to be_a(Float)
-                expect(coordinate[:longitude]).to be_a(Float)
-            end
+            expect(trace[:coordinates].length).to eq(exp_trace.coordinates.length)
+            check_coordinates(trace)
+            check_distances(trace)
 
             #Check if the retrieved trace has the correct id
-            expect(data[:id]).to eq(exp_trace[:_id].to_s)
+            expect(trace[:id]).to eq(exp_trace[:_id].to_s)
+
+            #Check if distance was persisted by reloading the entity
+            db_trace = Trace.find(trace[:id])
+            check_distances(db_trace)
         end
     end
 
@@ -52,18 +100,21 @@ describe 'Traces API' do
             ]
         end
 
-        it 'should create trace' do
+        it 'should create trace with calculated distances' do
             post '/traces', body.to_json, { "HTTP_ACCEPT" => "application/json" }
             expect(last_response.body).to eq("Created")
 
             traces = Trace.all
             expect(traces.length).to eq(1)
 
-            expect(traces[0].coordinates.length).to eq(body.length)
+            trace = traces[0]
+            expect(trace.coordinates.length).to eq(body.length)
+
+            check_distances(trace)
         end
     end
 
-    describe 'PUT /traces' do
+    describe 'PUT /traces', :focus => true do
         let(:body) do
             [
                 {:latitude => 30.0, :longitude => -117.5},
@@ -85,6 +136,8 @@ describe 'Traces API' do
 
             trace = Trace.first(:_id => '1')
             expect(trace.coordinates.length).to eq(3)
+
+            check_distances(trace)
         end
 
         it 'should update non-existing trace with coordinates' do
@@ -95,10 +148,12 @@ describe 'Traces API' do
 
             trace = Trace.first(:_id => '2')
             expect(trace.coordinates.length).to eq(3) 
+
+            check_distances(trace)
         end
     end
 
-    describe 'DELETE /traces/:id', :focus => true do
+    describe 'DELETE /traces/:id' do
         it 'should delete existing trace' do
             trace = Trace.new()
             trace.save
